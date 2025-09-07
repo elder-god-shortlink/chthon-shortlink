@@ -1,0 +1,30 @@
+{
+  "ignorePatterns": [
+    {
+      "pattern": "^https://github\\.com/chthon/shortlink"
+    },
+    {
+      "pattern": "^http://localhost"
+    },
+    {
+      "pattern": "^https://sonarcloud\\.io"
+    },
+    {
+      "pattern": "^https://codecov\\.io"
+    }
+  ],
+  "timeout": "15s",
+  "retryOn429": true,
+  "retryCount": 3,
+  "fallbackHttpStatus": [
+    400,
+    401,
+    403,
+    404,
+    429,
+    500,
+    502,
+    503,
+    504
+  ]
+}

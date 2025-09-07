@@ -1,0 +1,293 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  GO_VERSION: '1.21'
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+      tag_name: ${{ steps.get_version.outputs.tag }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Get version
+      id: get_version
+      run: echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ steps.get_version.outputs.tag }}
+        release_name: Release ${{ steps.get_version.outputs.tag }}
+        draft: false
+        prerelease: false
+        body: |
+          ## Changes in this Release
+          
+          * Updated dependencies
+          * Bug fixes and improvements
+          * Performance optimizations
+          
+          ## Docker Images
+          
+          All services are available as Docker images:
+          
+          ```bash
+          docker pull ghcr.io/${{ github.repository }}/api-gateway:${{ steps.get_version.outputs.tag }}
+          docker pull ghcr.io/${{ github.repository }}/shortlink-service:${{ steps.get_version.outputs.tag }}
+          docker pull ghcr.io/${{ github.repository }}/redirect-service:${{ steps.get_version.outputs.tag }}
+          docker pull ghcr.io/${{ github.repository }}/analytics-service:${{ steps.get_version.outputs.tag }}
+          docker pull ghcr.io/${{ github.repository }}/user-management-service:${{ steps.get_version.outputs.tag }}
+          ```
+          
+          ## Installation
+          
+          Download the appropriate binary for your platform from the assets below, or use Docker Compose:
+          
+          ```bash
+          wget https://github.com/${{ github.repository }}/releases/download/${{ steps.get_version.outputs.tag }}/docker-compose.yml
+          docker-compose up -d
+          ```
+
+  build-binaries:
+    name: Build Binaries
+    runs-on: ubuntu-latest
+    needs: create-release
+    strategy:
+      matrix:
+        os: [linux, windows, darwin]
+        arch: [amd64, arm64]
+        exclude:
+          - os: windows
+            arch: arm64
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Cache Go modules
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+
+    - name: Build binaries
+      env:
+        GOOS: ${{ matrix.os }}
+        GOARCH: ${{ matrix.arch }}
+      run: |
+        mkdir -p dist
+        
+        # Set file extension for Windows
+        EXT=""
+        if [ "${{ matrix.os }}" = "windows" ]; then
+          EXT=".exe"
+        fi
+        
+        # Build all services
+        go build -ldflags="-w -s" -o dist/api-gateway-${{ matrix.os }}-${{ matrix.arch }}${EXT} ./services/api-gateway
+        go build -ldflags="-w -s" -o dist/shortlink-service-${{ matrix.os }}-${{ matrix.arch }}${EXT} ./services/shortlink
+        go build -ldflags="-w -s" -o dist/redirect-service-${{ matrix.os }}-${{ matrix.arch }}${EXT} ./services/redirect
+        go build -ldflags="-w -s" -o dist/analytics-service-${{ matrix.os }}-${{ matrix.arch }}${EXT} ./services/analytics
+        go build -ldflags="-w -s" -o dist/user-management-service-${{ matrix.os }}-${{ matrix.arch }}${EXT} ./services/user-management
+
+    - name: Create archive
+      run: |
+        cd dist
+        if [ "${{ matrix.os }}" = "windows" ]; then
+          zip -r shortlink-${{ needs.create-release.outputs.tag_name }}-${{ matrix.os }}-${{ matrix.arch }}.zip *
+        else
+          tar -czf shortlink-${{ needs.create-release.outputs.tag_name }}-${{ matrix.os }}-${{ matrix.arch }}.tar.gz *
+        fi
+
+    - name: Upload Release Asset
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ needs.create-release.outputs.upload_url }}
+        asset_path: ./dist/shortlink-${{ needs.create-release.outputs.tag_name }}-${{ matrix.os }}-${{ matrix.arch }}.${{ matrix.os == 'windows' && 'zip' || 'tar.gz' }}
+        asset_name: shortlink-${{ needs.create-release.outputs.tag_name }}-${{ matrix.os }}-${{ matrix.arch }}.${{ matrix.os == 'windows' && 'zip' || 'tar.gz' }}
+        asset_content_type: ${{ matrix.os == 'windows' && 'application/zip' || 'application/gzip' }}
+
+  build-docker-images:
+    name: Build Release Docker Images
+    runs-on: ubuntu-latest
+    needs: create-release
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Build and push API Gateway
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./services/api-gateway/Dockerfile
+        push: true
+        tags: |
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/api-gateway:${{ needs.create-release.outputs.tag_name }}
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/api-gateway:latest
+        platforms: linux/amd64,linux/arm64
+
+    - name: Build and push Shortlink Service
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./services/shortlink/Dockerfile
+        push: true
+        tags: |
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/shortlink-service:${{ needs.create-release.outputs.tag_name }}
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/shortlink-service:latest
+        platforms: linux/amd64,linux/arm64
+
+    - name: Build and push Redirect Service
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./services/redirect/Dockerfile
+        push: true
+        tags: |
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/redirect-service:${{ needs.create-release.outputs.tag_name }}
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/redirect-service:latest
+        platforms: linux/amd64,linux/arm64
+
+    - name: Build and push Analytics Service
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./services/analytics/Dockerfile
+        push: true
+        tags: |
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/analytics-service:${{ needs.create-release.outputs.tag_name }}
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/analytics-service:latest
+        platforms: linux/amd64,linux/arm64
+
+    - name: Build and push User Management Service
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./services/user-management/Dockerfile
+        push: true
+        tags: |
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/user-management-service:${{ needs.create-release.outputs.tag_name }}
+          ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/user-management-service:latest
+        platforms: linux/amd64,linux/arm64
+
+  update-docker-compose:
+    name: Update Docker Compose
+    runs-on: ubuntu-latest
+    needs: [create-release, build-docker-images]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Update docker-compose.yml with release tag
+      run: |
+        sed -i 's/:latest/:${{ needs.create-release.outputs.tag_name }}/g' docker-compose.yml
+        sed -i 's/:main/:${{ needs.create-release.outputs.tag_name }}/g' docker-compose.yml
+
+    - name: Upload Docker Compose as Release Asset
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ needs.create-release.outputs.upload_url }}
+        asset_path: ./docker-compose.yml
+        asset_name: docker-compose.yml
+        asset_content_type: text/yaml
+
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [create-release, build-docker-images]
+    environment: production
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Deploy to production
+      run: |
+        echo "Deploying release ${{ needs.create-release.outputs.tag_name }} to production..."
+        # Add your production deployment commands here
+        # kubectl set image deployment/api-gateway api-gateway=ghcr.io/${{ github.repository }}/api-gateway:${{ needs.create-release.outputs.tag_name }}
+        # kubectl set image deployment/shortlink-service shortlink-service=ghcr.io/${{ github.repository }}/shortlink-service:${{ needs.create-release.outputs.tag_name }}
+        # kubectl rollout status deployment/api-gateway
+        # kubectl rollout status deployment/shortlink-service
+
+  notify-release:
+    name: Notify Release
+    runs-on: ubuntu-latest
+    needs: [create-release, build-binaries, build-docker-images, deploy-production]
+    if: always()
+
+    steps:
+    - name: Slack notification
+      uses: 8398a7/action-slack@v3
+      if: secrets.SLACK_WEBHOOK != ''
+      with:
+        status: custom
+        custom_payload: |
+          {
+            "text": ":rocket: New release ${{ needs.create-release.outputs.tag_name }} has been published!",
+            "attachments": [
+              {
+                "color": "good",
+                "fields": [
+                  {
+                    "title": "Release",
+                    "value": "${{ needs.create-release.outputs.tag_name }}",
+                    "short": true
+                  },
+                  {
+                    "title": "Repository",
+                    "value": "${{ github.repository }}",
+                    "short": true
+                  },
+                  {
+                    "title": "Release Notes",
+                    "value": "https://github.com/${{ github.repository }}/releases/tag/${{ needs.create-release.outputs.tag_name }}",
+                    "short": false
+                  }
+                ]
+              }
+            ]
+          }
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK }}

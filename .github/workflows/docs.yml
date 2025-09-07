@@ -1,0 +1,79 @@
+name: Documentation Check
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+    paths:
+      - '**.md'
+      - 'docs/**'
+
+jobs:
+  docs-check:
+    name: Documentation Quality Check
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Lint Markdown files
+      uses: DavidAnson/markdownlint-cli2-action@v13
+      with:
+        globs: '**/*.md'
+
+    - name: Check broken links
+      uses: gaurav-nelson/github-action-markdown-link-check@v1
+      with:
+        use-quiet-mode: 'yes'
+        use-verbose-mode: 'yes'
+        config-file: '.github/mlc_config.json'
+
+    - name: Spell check
+      uses: streetsidesoftware/cspell-action@v5
+      with:
+        files: '**/*.md'
+        config: '.github/cspell.json'
+
+    - name: Check README completeness
+      run: |
+        # Check if README has required sections
+        required_sections=("Features" "Architecture" "Quick Start" "Testing" "Deployment" "Contributing")
+        
+        for section in "${required_sections[@]}"; do
+          if ! grep -q "## .*$section" README.md; then
+            echo "❌ Missing required section: $section"
+            exit 1
+          else
+            echo "✅ Found section: $section"
+          fi
+        done
+        
+        echo "✅ README completeness check passed"
+
+    - name: Check API documentation
+      run: |
+        # Check if API endpoints are documented
+        if ! grep -q "API Documentation" README.md; then
+          echo "❌ Missing API Documentation section"
+          exit 1
+        fi
+        
+        echo "✅ API documentation check passed"
+
+    - name: Validate badges
+      run: |
+        # Check if all badges are present and valid
+        required_badges=("Build Status" "Code Quality" "Go Version" "License")
+        
+        for badge in "${required_badges[@]}"; do
+          if ! grep -q "!\[.*$badge.*\]" README.md; then
+            echo "❌ Missing badge: $badge"
+            exit 1
+          else
+            echo "✅ Found badge: $badge"
+          fi
+        done
+        
+        echo "✅ Badge validation passed"

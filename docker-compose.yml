@@ -1,0 +1,217 @@
+version: '3.8'
+
+services:
+  # Databases
+  postgres:
+    image: postgres:15-alpine
+    container_name: shortlink_postgres
+    environment:
+      POSTGRES_DB: shortlink
+      POSTGRES_USER: shortlink_user
+      POSTGRES_PASSWORD: shortlink_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    networks:
+      - shortlink_network
+
+  redis:
+    image: redis:7-alpine
+    container_name: shortlink_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - shortlink_network
+
+  mongodb:
+    image: mongo:7
+    container_name: shortlink_mongodb
+    environment:
+      MONGO_INITDB_DATABASE: shortlink_analytics
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - shortlink_network
+
+  # Message Queue
+  zookeeper:
+    image: confluentinc/cp-zookeeper:latest
+    container_name: shortlink_zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      - shortlink_network
+
+  kafka:
+    image: confluentinc/cp-kafka:latest
+    container_name: shortlink_kafka
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: true
+    ports:
+      - "9092:9092"
+    networks:
+      - shortlink_network
+
+  # Monitoring
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: shortlink_prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./configs/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+    networks:
+      - shortlink_network
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: shortlink_grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./configs/grafana:/etc/grafana/provisioning
+    networks:
+      - shortlink_network
+
+  # API Gateway (Traefik)
+  traefik:
+    image: traefik:v3.0
+    container_name: shortlink_traefik
+    command:
+      - --api.insecure=true
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080"  # Traefik dashboard
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - shortlink_network
+
+  # Microservices
+  api-gateway:
+    build:
+      context: .
+      dockerfile: services/api-gateway/Dockerfile
+    container_name: shortlink_api_gateway
+    environment:
+      - POSTGRES_HOST=postgres
+      - REDIS_HOST=redis
+      - MONGODB_URI=mongodb://mongodb:27017
+      - KAFKA_BROKERS=kafka:9092
+    ports:
+      - "8081:8081"
+    depends_on:
+      - postgres
+      - redis
+      - mongodb
+      - kafka
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.api-gateway.rule=Host(`api.localhost`)"
+      - "traefik.http.services.api-gateway.loadbalancer.server.port=8081"
+    networks:
+      - shortlink_network
+
+  shortlink-service:
+    build:
+      context: .
+      dockerfile: services/shortlink/Dockerfile
+    container_name: shortlink_service
+    environment:
+      - POSTGRES_HOST=postgres
+      - REDIS_HOST=redis
+    ports:
+      - "8082:8082"
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - shortlink_network
+
+  redirect-service:
+    build:
+      context: .
+      dockerfile: services/redirect/Dockerfile
+    container_name: redirect_service
+    environment:
+      - POSTGRES_HOST=postgres
+      - REDIS_HOST=redis
+      - KAFKA_BROKERS=kafka:9092
+    ports:
+      - "8083:8083"
+    depends_on:
+      - postgres
+      - redis
+      - kafka
+    networks:
+      - shortlink_network
+
+  analytics-service:
+    build:
+      context: .
+      dockerfile: services/analytics/Dockerfile
+    container_name: analytics_service
+    environment:
+      - MONGODB_URI=mongodb://mongodb:27017
+      - KAFKA_BROKERS=kafka:9092
+    ports:
+      - "8084:8084"
+    depends_on:
+      - mongodb
+      - kafka
+    networks:
+      - shortlink_network
+
+  user-management-service:
+    build:
+      context: .
+      dockerfile: services/user-management/Dockerfile
+    container_name: user_management_service
+    environment:
+      - POSTGRES_HOST=postgres
+      - REDIS_HOST=redis
+    ports:
+      - "8085:8085"
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - shortlink_network
+
+volumes:
+  postgres_data:
+  redis_data:
+  mongodb_data:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  shortlink_network:
+    driver: bridge
