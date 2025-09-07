@@ -31,7 +31,7 @@ jobs:
         config-file: '.github/mlc_config.json'
 
     - name: Spell check
-      uses: streetsidesoftware/cspell-action@v5
+      uses: streetsidesoftware/cspell-action@v7
       with:
         files: '**/*.md'
         config: '.github/cspell.json'
