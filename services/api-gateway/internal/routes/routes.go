@@ -5,6 +5,8 @@ import (
 	"github.com/chthon/shortlink/services/api-gateway/internal/handlers"
 	"github.com/chthon/shortlink/services/api-gateway/internal/middleware"
 	"github.com/gin-gonic/gin"
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
 )
 
 // SetupRoutes configures all routes for the API Gateway
@@ -147,11 +149,20 @@ func SetupRoutes(r *gin.Engine, h *handlers.Handler, cfg *config.Config) {
 	// Documentation routes
 	docs := r.Group("/docs")
 	{
-		docs.Static("/", "./docs")
-		docs.GET("/swagger", func(c *gin.Context) {
+		// Swagger UI
+		docs.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+		docs.GET("/", func(c *gin.Context) {
+			c.Redirect(302, "/docs/swagger/index.html")
+		})
+
+		// API info endpoint
+		docs.GET("/info", func(c *gin.Context) {
 			c.JSON(200, gin.H{
-				"message": "Swagger documentation",
-				"url":     "/docs/swagger.json",
+				"name":        "Chthon ShortLink API Gateway",
+				"version":     "1.0.0",
+				"description": "Enterprise-grade URL shortening microservices platform",
+				"swagger_ui":  "/docs/swagger/index.html",
+				"openapi":     "/docs/swagger/doc.json",
 			})
 		})
 	}

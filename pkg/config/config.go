@@ -5,6 +5,8 @@ import (
 	"os"
 	"strconv"
 	"time"
+
+	"github.com/joho/godotenv"
 )
 
 // Config holds all configuration for the application
@@ -82,6 +84,11 @@ type LoggingConfig struct {
 
 // LoadConfig loads configuration from environment variables
 func LoadConfig() *Config {
+	// Load .env file if it exists
+	err := godotenv.Load()
+	if err != nil {
+		log.Printf("Warning: Could not load .env file: %v", err)
+	}
 	return &Config{
 		Server: ServerConfig{
 			Host: getEnv("API_GATEWAY_HOST", "0.0.0.0"),

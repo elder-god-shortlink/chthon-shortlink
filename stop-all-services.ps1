@@ -1,0 +1,1 @@
+Get-Process | Where-Object {$_.ProcessName -like "*gateway*" -or $_.ProcessName -like "*shortlink*" -or $_.ProcessName -like "*redirect*" -or $_.ProcessName -like "*analytics*" -or $_.ProcessName -like "*user-management*"} | Stop-Process -Force

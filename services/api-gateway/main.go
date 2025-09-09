@@ -16,6 +16,9 @@ import (
 	"github.com/chthon/shortlink/services/api-gateway/internal/middleware"
 	"github.com/chthon/shortlink/services/api-gateway/internal/routes"
 	"github.com/gin-gonic/gin"
+
+	// Import docs for swagger
+	_ "github.com/chthon/shortlink/services/api-gateway/docs"
 )
 
 func main() {
