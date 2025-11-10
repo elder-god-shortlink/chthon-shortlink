@@ -207,7 +207,7 @@ jobs:
           type=raw,value=latest,enable={{is_default_branch}}
 
     - name: Build and push API Gateway
-      uses: docker/build-push-action@v5
+      uses: docker/build-push-action@v6
       with:
         context: .
         file: ./services/api-gateway/Dockerfile
@@ -217,7 +217,7 @@ jobs:
         cache-to: type=gha,mode=max
 
     - name: Build and push Shortlink Service
-      uses: docker/build-push-action@v5
+      uses: docker/build-push-action@v6
       with:
         context: .
         file: ./services/shortlink/Dockerfile
@@ -227,7 +227,7 @@ jobs:
         cache-to: type=gha,mode=max
 
     - name: Build and push Redirect Service
-      uses: docker/build-push-action@v5
+      uses: docker/build-push-action@v6
       with:
         context: .
         file: ./services/redirect/Dockerfile
@@ -237,7 +237,7 @@ jobs:
         cache-to: type=gha,mode=max
 
     - name: Build and push Analytics Service
-      uses: docker/build-push-action@v5
+      uses: docker/build-push-action@v6
       with:
         context: .
         file: ./services/analytics/Dockerfile
@@ -247,7 +247,7 @@ jobs:
         cache-to: type=gha,mode=max
 
     - name: Build and push User Management Service
-      uses: docker/build-push-action@v5
+      uses: docker/build-push-action@v6
       with:
         context: .
         file: ./services/user-management/Dockerfile
